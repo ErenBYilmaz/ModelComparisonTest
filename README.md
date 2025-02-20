@@ -1,10 +1,12 @@
 # Comparing (statistical) models
 
+In machine learning and related fields, we often have the issue that we trained two models, but are unsure if our test set is large enough to show that one model is better than the other.
 This repository implements two methods of hypothesis testing to check if two models achieve different results according to some specified metric, against the null hypothesis that the two model's outputs come from the same distribution.
 
 - `permutation_based_model_comparison()`: A standard way of conducting this test, accepted by statisticians and commonly used.
 - `bootstrap_based_model_comparison()`: A bootstrap-based extension that works better for small sample-sizes then the permutation test in my simulations, but is not widely accepted in the literature (yet?).
-- `PairwisePermutationModelComparison and PairwiseBootstrapModelComparison`: Extensions to plot many pairwise comparisons (of more than 2 models) to get an overview of the data.
+
+We also have `PairwisePermutationModelComparison` and `PairwiseBootstrapModelComparison`: Extensions to plot many pairwise comparisons (of more than 2 models) to get an overview of the data.
 
 # recommended workflow:
 0. build/train/optimize the models that you want to compare.
