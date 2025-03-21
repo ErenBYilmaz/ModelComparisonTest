@@ -576,7 +576,7 @@ class TestBootStrapTest(unittest.TestCase):
         else:
             assert worst_violation < 0.05, worst_violation
 
-    def run_repeated_permutation_tests(self, n_bootstraps, n_tests=500, test_set_size=100):
+    def run_repeated_permutation_tests(self, n_bootstraps, n_tests=1000, test_set_size=100):
         print(f'n_bootstraps is relatively low at {n_bootstraps}. This function will only return multiples of 1 / (n_bootstraps + 1) = {1 / (n_bootstraps + 1):.3g} '
               f'so it you can use those as significance level α and then check p <= α or p < α + {1 / (n_bootstraps + 1):.3g} instead of p < α')
         p_values = []
@@ -598,15 +598,15 @@ class TestBootStrapTest(unittest.TestCase):
         print(f'median p-value: {numpy.median(p_values)}')
         cumulative_ratios = p_value_calibration_overview(p_values)
         worst_violation = 1
-        for ratio, v in cumulative_ratios.items():
-            print(f'ratio_p_values_at_most_{ratio}: {v}')
-            if ratio == 1:
+        for p_threshold, ratio in cumulative_ratios.items():
+            print(f'ratio_p_values_at_most_{p_threshold}: {ratio}')
+            if p_threshold > 0.5:
                 continue
 
             # I expect the p value to be below 0.05 in 5% roughly 5 % of the cases, following a binomial distribution (assuming the null hypothesis is true)
             # otherwise it should be below 0.05 more often
             # this is the probability of getting at least that many p-values below threshold if the test was well-calibrated and the null hypothesis holds
-            probability_of_having_less_positives = binom.cdf(v * n_tests - 1, n_tests, ratio)
+            probability_of_having_less_positives = binom.cdf(ratio * n_tests - 1, n_tests, p_threshold)
             probability_if_well_calibrated = 1 - probability_of_having_less_positives
             worst_violation = min(worst_violation, probability_if_well_calibrated)
         print('Worst violation was', worst_violation)
