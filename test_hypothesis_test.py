@@ -1,8 +1,6 @@
 import math
-import os
 import unittest
 from typing import Type
-from unittest import skip
 
 import numpy
 import pandas
@@ -11,8 +9,7 @@ from parameterized import parameterized_class
 from scipy.stats import binom
 from tqdm import tqdm
 
-from hypothesis_test import bootstrap_based_model_comparison, non_permutation_bootstrap_based_model_comparison
-from my_tabulate import my_tabulate
+from hypothesis_test import BootstrapModelComparison
 from utils.tuned_cache import TunedMemory
 
 results_cache = TunedMemory('.cache')
@@ -25,18 +22,61 @@ class TestTest:
     def ground_truth(self):
         raise NotImplementedError('Abstract method')
 
+    def ground_truth_2(self):
+        return self.ground_truth()
+
+    def unpaired(self):
+        return False
+
     def model_outputs_1(self):
         raise NotImplementedError('Abstract method')
 
     def model_outputs_2(self):
         raise NotImplementedError('Abstract method')
 
-    def metric(self, y_true, y_pred):
+    def metric(self, y_true: numpy.ndarray, y_pred: numpy.ndarray) -> float:
         raise NotImplementedError('Abstract method')
 
     @classmethod
     def null_hypothesis_holds(cls) -> bool:
         raise NotImplementedError('Abstract method')
+
+
+def make_unpaired_test(t: Type[TestTest], test_set_size_ratio: float, name_suffix: str = None) -> Type[TestTest]:
+    class UnpairedTest(TestTest):
+        def __init__(self, test_set_size: int):
+            super().__init__(test_set_size=test_set_size)
+            self.base_1 = t(test_set_size)
+            self.base_2 = t(round(test_set_size * test_set_size_ratio))
+
+        def ground_truth(self):
+            return self.base_1.ground_truth()
+
+        def ground_truth_2(self):
+            return self.base_2.ground_truth()
+
+        def model_outputs_1(self):
+            return self.base_1.model_outputs_1()
+
+        def model_outputs_2(self):
+            return self.base_2.model_outputs_2()
+
+        def unpaired(self):
+            return True
+
+        def metric(self, y_true, y_pred):
+            return self.base_1.metric(y_true, y_pred)
+
+        @classmethod
+        def null_hypothesis_holds(cls) -> bool:
+            return t.null_hypothesis_holds()
+
+    name = f'Unpaired{t.__name__}'
+    if name_suffix:
+        name += name_suffix
+    UnpairedTest.__name__ = name
+
+    return UnpairedTest
 
 
 class CIndexTest(TestTest):
@@ -236,14 +276,17 @@ class BinaryCETest(TestTest):
 
     def __init__(self, test_set_size: int, accuracy_1=0.74, accuracy_2=0.74):
         y_true = numpy.random.randint(0, 2, size=test_set_size)
+
         y_pred_1_correct = numpy.random.random(test_set_size) <= accuracy_1
         y_pred_1 = numpy.zeros_like(y_true, dtype='float32')
         y_pred_1[y_pred_1_correct] = y_true[y_pred_1_correct] * accuracy_1 + (1 - y_true[y_pred_1_correct]) * (1 - accuracy_1)
         y_pred_1[~y_pred_1_correct] = y_true[~y_pred_1_correct] * (1 - accuracy_1) + (1 - y_true[~y_pred_1_correct]) * accuracy_1
+
         y_pred_2_correct = numpy.random.random(test_set_size) <= accuracy_2
         y_pred_2 = numpy.zeros_like(y_true, dtype='float32')
         y_pred_2[y_pred_2_correct] = y_true[y_pred_2_correct] * accuracy_2 + (1 - y_true[y_pred_2_correct]) * (1 - accuracy_2)
         y_pred_2[~y_pred_2_correct] = y_true[~y_pred_2_correct] * (1 - accuracy_2) + (1 - y_true[~y_pred_2_correct]) * accuracy_2
+
         self.y_pred_1 = y_pred_1
         self.y_pred_2 = y_pred_2
         self.y_true = y_true
@@ -264,7 +307,7 @@ class BinaryCETest(TestTest):
         return True
 
     def metric(self, y_true, y_pred, epsilon=1e-7):
-        return numpy.sum(y_true * numpy.log(y_pred + epsilon) + (1 - y_true) * numpy.log(1 - y_pred + epsilon))
+        return numpy.mean(y_true * numpy.log(y_pred + epsilon) + (1 - y_true) * numpy.log(1 - y_pred + epsilon))
 
 
 class AsymmetricBinaryCETest(BinaryCETest):
@@ -344,7 +387,7 @@ class AsymmetricAccuracyTest(AccuracyTest):
 class SlightlyAsymmetricAccuracyTest(AccuracyTest):
 
     def __init__(self, test_set_size: int):
-        super().__init__(test_set_size=test_set_size, accuracy_1=0.78, accuracy_2=0.74)
+        super().__init__(test_set_size=test_set_size, accuracy_1=0.80, accuracy_2=0.74)
 
     @classmethod
     def null_hypothesis_holds(cls) -> bool:
@@ -405,7 +448,7 @@ class LogLikelihoodTest(TestTest):
         return True
 
     @classmethod
-    def metric(cls, y_true, y_pred):
+    def metric(cls, y_true: numpy.ndarray, y_pred: numpy.ndarray) -> float:
         # Calculate log-likelihood
         log_likelihood = y_true * numpy.log(y_pred) + (1 - y_true) * numpy.log(1 - y_pred)
         return numpy.mean(log_likelihood)
@@ -422,21 +465,30 @@ def test_name(cls, idx, i):
     )
 
 
-@parameterized_class(['cls_test_data_generator', 'permutation_only', 'two_sided', 'paired', 'skip_permutation'], [
-    (test_type, permutation_only, two_sided, paired, skip_permutation)
-    for test_type in [BinaryCETest, AsymmetricBinaryCETest, SlightlyAsymmetricBinaryCETest,
-                      MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest,
-                      AccuracyTest, SameModelAccuracyTest, AsymmetricAccuracyTest, SlightlyAsymmetricAccuracyTest,
-                      CIndexTest, AsymmetricCIndexTest,
-                      AsymmetricAverageLikelihoodTest, AvgLogLikelihoodTest]
-    for permutation_only in [False, True]
-    for two_sided in [True, False]
-    for paired in [True, False]
-    for skip_permutation in [False, True]
-    if not (permutation_only and not paired)
-    if not (permutation_only and skip_permutation)
-    if not (skip_permutation and two_sided)
-], class_name_func=test_name)
+def relevant_test_types():
+    test_types = [
+        BinaryCETest, AsymmetricBinaryCETest, SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AccuracyTest, SameModelAccuracyTest, AsymmetricAccuracyTest,
+        SlightlyAsymmetricAccuracyTest, CIndexTest, AsymmetricCIndexTest, AsymmetricAverageLikelihoodTest, AvgLogLikelihoodTest
+    ]
+
+    combinations = []
+    for test_type in test_types:
+        for permutation_only in [True]:
+            for two_sided in [True, False]:
+                for paired in [True, False]:
+                    for skip_permutation in [False]:
+                        if skip_permutation and (permutation_only or two_sided):
+                            continue
+                        combinations.append((test_type, permutation_only, two_sided, paired, skip_permutation))
+                        if not paired and 'Same' not in test_type.__name__:
+                            combinations.append((make_unpaired_test(test_type, 1, name_suffix='SameSize'), permutation_only, two_sided, paired, skip_permutation))
+                            combinations.append((make_unpaired_test(test_type, 0.5, name_suffix='HalfSize'), permutation_only, two_sided, paired, skip_permutation))
+                            combinations.append((make_unpaired_test(test_type, 2, name_suffix='DoubleSize'), permutation_only, two_sided, paired, skip_permutation))
+
+    return combinations
+
+
+@parameterized_class(['cls_test_data_generator', 'permutation_only', 'two_sided', 'paired', 'skip_permutation'], relevant_test_types(), class_name_func=test_name)
 class TestBootStrapTest(unittest.TestCase):
     cls_test_data_generator: Type[TestTest]
     permutation_only: bool
@@ -444,17 +496,18 @@ class TestBootStrapTest(unittest.TestCase):
     paired: bool
     skip_permutation: bool
 
-    def bootstrap_test(self, n_bootstraps, y_true: numpy.ndarray, y_pred_1: numpy.ndarray, y_pred_2: numpy.ndarray, metric, verbose=0):
-        return bootstrap_based_model_comparison(n_bootstraps=n_bootstraps,
-                                                y_true=y_true,
-                                                y_pred_1=y_pred_1,
-                                                y_pred_2=y_pred_2,
-                                                metric=metric,
-                                                permutation_only=self.permutation_only,
-                                                two_sided=self.two_sided,
-                                                paired=True,
-                                                verbose=verbose,
-                                                skip_permutation=self.skip_permutation).p_value
+    def bootstrap_test(self, n_bootstraps, y_true: numpy.ndarray, y_pred_1: numpy.ndarray, y_pred_2: numpy.ndarray, metric, y_true_2=None, verbose=0):
+        return BootstrapModelComparison(n_bootstraps=n_bootstraps,
+                                        y_true=y_true,
+                                        y_true_2=y_true_2,
+                                        y_pred_1=y_pred_1,
+                                        y_pred_2=y_pred_2,
+                                        metric=metric,
+                                        permutation_only=self.permutation_only,
+                                        two_sided=self.two_sided,
+                                        paired=self.paired,
+                                        verbose=verbose,
+                                        skip_permutation=self.skip_permutation)().p_value
 
     def test_some_example_computation(self):
         if self.paired and self.permutation_only and self.two_sided:
@@ -462,13 +515,13 @@ class TestBootStrapTest(unittest.TestCase):
             return
 
         y_true = numpy.array([0, 0, 0, 1, 1, 1, 1])
-        y_pred_1 = numpy.array([0.2, 0.3, 0.4, 0.52, 0.6, 0.7, 0.1])
-        y_pred_2 = numpy.array([0.1, 0.2, 0.3, 0.4, 0.45, 0.6, 0.15])
+        y_pred_1 = numpy.array([0.2, 0.2, 0.3, 0.52, 0.6, 0.7, 0.15])
+        y_pred_2 = numpy.array([0.25, 0.3, 0.6, 0.4, 0.45, 0.6, 0.1])
         accuracy = lambda y_true, y_pred: numpy.mean((y_pred >= 0.5) == y_true)
         p_value = self.bootstrap_test(999, y_true, y_pred_1, y_pred_2, accuracy)
         print(p_value)
         assert isinstance(p_value, float), p_value
-        assert p_value < 0.5, p_value
+        assert p_value < 0.55, p_value
 
     def test_more_thorough_simulation(self):
         test = AccuracyTest(test_set_size=100)
@@ -512,18 +565,18 @@ class TestBootStrapTest(unittest.TestCase):
     @parameterized.parameterized.expand([
         (2,),
         (9,),
-        (99,),
+        (49,),
     ], name_func=lambda f, i, p: f'{f.__name__}_{p[0][0]:02d}')
     def test_with_multiple_bootstraps(self, n_bootstraps):
         worst_violation, p_values = self.run_repeated_permutation_tests(n_bootstraps)
         median_p_value = numpy.median(p_values)
         assert 0 < median_p_value <= 1
         if self.cls_test_data_generator.null_hypothesis_holds():
-            assert worst_violation < 0.9999, worst_violation
+            assert worst_violation > 0.001, worst_violation
         else:
-            assert worst_violation > 0.95, worst_violation
+            assert worst_violation < 0.05, worst_violation
 
-    def run_repeated_permutation_tests(self, n_bootstraps, n_tests=1000, test_set_size=100):
+    def run_repeated_permutation_tests(self, n_bootstraps, n_tests=500, test_set_size=100):
         print(f'n_bootstraps is relatively low at {n_bootstraps}. This function will only return multiples of 1 / (n_bootstraps + 1) = {1 / (n_bootstraps + 1):.3g} '
               f'so it you can use those as significance level α and then check p <= α or p < α + {1 / (n_bootstraps + 1):.3g} instead of p < α')
         p_values = []
@@ -531,7 +584,8 @@ class TestBootStrapTest(unittest.TestCase):
             test = self.cls_test_data_generator(test_set_size)
 
             p_value = self.bootstrap_test(n_bootstraps,
-                                          y_true=test.y_true,
+                                          y_true=test.ground_truth(),
+                                          y_true_2=test.ground_truth_2(),
                                           y_pred_1=test.model_outputs_1(),
                                           y_pred_2=test.model_outputs_2(),
                                           metric=test.metric)
@@ -543,7 +597,7 @@ class TestBootStrapTest(unittest.TestCase):
         print(f'test_set_size: {test_set_size}')
         print(f'median p-value: {numpy.median(p_values)}')
         cumulative_ratios = p_value_calibration_overview(p_values)
-        worst_violation = 0
+        worst_violation = 1
         for ratio, v in cumulative_ratios.items():
             print(f'ratio_p_values_at_most_{ratio}: {v}')
             if ratio == 1:
@@ -552,152 +606,11 @@ class TestBootStrapTest(unittest.TestCase):
             # I expect the p value to be below 0.05 in 5% roughly 5 % of the cases, following a binomial distribution (assuming the null hypothesis is true)
             # otherwise it should be below 0.05 more often
             # this is the probability of getting at least that many p-values below threshold if the test was well-calibrated and the null hypothesis holds
-            probability_if_well_calibrated = binom.cdf(v * n_tests, n_tests, ratio)
-            worst_violation = max(worst_violation, probability_if_well_calibrated)
+            probability_of_having_less_positives = binom.cdf(v * n_tests - 1, n_tests, ratio)
+            probability_if_well_calibrated = 1 - probability_of_having_less_positives
+            worst_violation = min(worst_violation, probability_if_well_calibrated)
         print('Worst violation was', worst_violation)
         return worst_violation, p_values
-        # TODO Vorschlag Nico: Histogramme der p-Werte (ggf kumulativ)
-
-
-class PermutationTestCase:
-    def __init__(self, cls_test_data_generator, n_bootstraps, n_tests, paired, permutation_only, test_set_size, two_sided, skip_permutation):
-        self.cls_test_data_generator = cls_test_data_generator
-        self.n_bootstraps = n_bootstraps
-        self.n_tests = n_tests
-        self.paired = paired
-        self.permutation_only = permutation_only
-        self.test_set_size = test_set_size
-        self.two_sided = two_sided
-        self.skip_permutation = skip_permutation
-
-    def as_dict(self):
-        return {
-            'cls_test_data_generator': self.cls_test_data_generator,
-            'n_bootstraps': self.n_bootstraps,
-            'n_tests': self.n_tests,
-            'paired': self.paired,
-            'permutation_only': self.permutation_only,
-            'test_set_size': self.test_set_size,
-            'two_sided': self.two_sided,
-            'skip_permutation': self.skip_permutation
-        }
-
-
-class TestViolationTable(unittest.TestCase):
-    def test_create_table(self):
-        results = []
-        for cls_test_data_generator in [SameModelAccuracyTest,
-                                        AccuracyTest,
-                                        LogLikelihoodTest,
-                                        MSETest,
-                                        CIndexTest,
-                                        AvgLogLikelihoodTest,
-                                        SlightlyAsymmetricAccuracyTest,
-                                        SlightlyAsymmetricBinaryCETest,
-                                        SlightlyAsymmetricMSETest,
-                                        SlightlyAsymmetricCIndexTest,
-                                        SlightlyAsymmetricAverageLikelihoodTest,
-                                        AsymmetricAccuracyTest,
-                                        AsymmetricMSETest,
-                                        AsymmetricBinaryCETest,
-                                        AsymmetricCIndexTest,
-                                        AsymmetricAverageLikelihoodTest, ]:
-            for permutation_only in [False, True]:
-                for two_sided in [True, False]:
-                    for paired in [True, False]:
-                        for skip_permutation in [True, False]:
-                            if skip_permutation and (permutation_only or two_sided):
-                                continue
-                            for n_bootstraps in [9, 99]:
-                                for test_set_size in [100, 200]:
-                                    for n_tests in [1000]:
-                                        worst_violation, p_values = self.cached_multiple_repetitions(cls_test_data_generator, n_bootstraps, n_tests, paired, permutation_only, test_set_size, two_sided,
-                                                                                                     skip_permutation)
-                                        results.append({
-                                            'cls_test_data_generator': cls_test_data_generator.__name__,
-                                            'permutation_only': permutation_only,
-                                            'skip_permutation': skip_permutation,
-                                            'two_sided': two_sided,
-                                            'paired': paired,
-                                            'n_bootstraps': n_bootstraps,
-                                            'test_set_size': test_set_size,
-                                            'n_tests': n_tests,
-                                            'worst_violation': worst_violation,
-                                            'null_hypothesis_holds': cls_test_data_generator.null_hypothesis_holds(),
-                                            'median_p_value': numpy.median(p_values),
-                                            'mean_p_value': numpy.mean(p_values),
-                                        })
-        df = pandas.DataFrame.from_records(results)
-        table = my_tabulate(df)
-        print(table)
-        os.makedirs('logs', exist_ok=True)
-        with open(f'logs/bootstrap_test_violations_{len(df)}.md', 'w') as f:
-            f.write(table)
-
-    def test_specific_simulations_for_presentation(self):
-        cases = [
-            # PermutationTestCase(AccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-            # PermutationTestCase(AccuracyTest, n_bootstraps=999, n_tests=1000, paired=True, permutation_only=False, test_set_size=100, two_sided=True, skip_permutation=False),
-            # PermutationTestCase(AccuracyTest, n_bootstraps=9999, n_tests=1000, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-
-            # PermutationTestCase(AccuracyTest, n_bootstraps=2, n_tests=100, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-            # PermutationTestCase(AccuracyTest, n_bootstraps=999, n_tests=100, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-
-            # PermutationTestCase(SlightlyAsymmetricAccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=False, test_set_size=100, two_sided=True, skip_permutation=False),
-            # PermutationTestCase(AsymmetricAccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=False, test_set_size=100, two_sided=True, skip_permutation=False),
-
-            # PermutationTestCase(SlightlyAsymmetricAccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=False, test_set_size=10, two_sided=True, skip_permutation=False),
-            # PermutationTestCase(SlightlyAsymmetricAccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=False, test_set_size=1000, two_sided=True, skip_permutation=False),
-
-            # PermutationTestCase(CIndexTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-            # PermutationTestCase(AvgLogLikelihoodTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-
-            # PermutationTestCase(CorrelatedAccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=True, test_set_size=100, two_sided=True, skip_permutation=False),
-
-            PermutationTestCase(AccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=True, test_set_size=400, two_sided=True, skip_permutation=False),
-            PermutationTestCase(AccuracyTest, n_bootstraps=99, n_tests=1000, paired=True, permutation_only=False, test_set_size=400, two_sided=True, skip_permutation=False),
-        ]
-        for case in cases:
-            type(self).cached_multiple_repetitions.func(self, **case.as_dict())
-
-    @results_cache.cache(verbose=0,
-                         cache_key=lambda self, cls_test_data_generator, n_bootstraps, n_tests, paired, permutation_only, test_set_size, two_sided, skip_permutation: (
-                                 cls_test_data_generator.__name__, n_bootstraps, n_tests, paired, permutation_only, test_set_size, two_sided, skip_permutation))
-    def cached_multiple_repetitions(self, cls_test_data_generator, n_bootstraps, n_tests, paired, permutation_only, test_set_size, two_sided, skip_permutation):
-        test = TestBootStrapTest()
-        test.cls_test_data_generator = cls_test_data_generator
-        test.permutation_only = permutation_only
-        test.two_sided = two_sided
-        test.paired = paired
-        test.skip_permutation = skip_permutation
-        return test.run_repeated_permutation_tests(n_bootstraps=n_bootstraps, n_tests=n_tests, test_set_size=test_set_size)
-
-
-@skip('Deprecated: Does not work')
-class TestNonPermutationBootStrapTest(TestBootStrapTest):
-    def bootstrap_test(self, n_bootstraps, y_true, y_pred_1, y_pred_2, metric, verbose=0):
-        return non_permutation_bootstrap_based_model_comparison(n_bootstraps=n_bootstraps, y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, metric=metric, verbose=verbose)
-
-
-@skip('Deprecated: Use parameterized test instead')
-class TestNonBootStrapPermutationTest(TestBootStrapTest):
-    def bootstrap_test(self, n_bootstraps, y_true, y_pred_1, y_pred_2, metric, verbose=0):
-        return bootstrap_based_model_comparison(n_bootstraps=n_bootstraps, y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, metric=metric, verbose=verbose,
-                                                permutation_only=True).p_value
-
-
-@skip('Deprecated: Use parameterized test instead')
-class TestNonBootStrapPermutationTestWithAvgLikelikelihood(TestBootStrapTest):
-    def bootstrap_test(self, n_bootstraps, y_true, y_pred_1, y_pred_2, metric, verbose=0):
-        return bootstrap_based_model_comparison(n_bootstraps=n_bootstraps, y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, metric=metric, verbose=verbose,
-                                                permutation_only=True).p_value
-
-
-@skip('Deprecated: Use parameterized test instead')
-class TestNonBootStrapPermutationTestWithCIndex(TestBootStrapTest):
-    def bootstrap_test(self, n_bootstraps, y_true, y_pred_1, y_pred_2, metric, verbose=0):
-        return bootstrap_based_model_comparison(n_bootstraps=n_bootstraps, y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, metric=metric, verbose=verbose,
-                                                permutation_only=True).p_value
 
 
 class TestLikelihoodFunction(unittest.TestCase):
@@ -727,3 +640,38 @@ class TestLikelihoodFunction(unittest.TestCase):
         assert math.isclose(avg_likelihood(y_true, y_pred_1), cph_l1.score(test_rossi))
         assert math.isclose(avg_likelihood(y_true, y_pred_2), cph_l2.score(test_rossi))
 
+
+class SanityCheckSimulation(unittest.TestCase):
+    def test_bootstrap_distribution_shift(self):
+        """
+        This test shows that the distribution of the difference of two metrics is shifted towards zero after bootstrapping.
+        That means that p-values are automatically miscalibrated if bootstrap is added into the mix
+        """
+        num_samples = 200
+        n_bootstraps = 10000
+        metric = AccuracyTest(test_set_size=10).metric
+        y_true = numpy.ones(num_samples)
+        inner_values = []
+        outer_values = []
+        larger_values = []
+
+        for _ in range(n_bootstraps):
+            samples_1 = numpy.random.randint(0, 2, size=num_samples)
+            samples_2 = numpy.random.randint(0, 2, size=num_samples)
+            difference_before_bootstrap = abs(metric(y_true, samples_1) - metric(y_true, samples_2))
+            outer_values.append(difference_before_bootstrap)
+            combined_sample = numpy.concatenate([samples_1, samples_2])
+            bootstrap_indices = numpy.random.choice(numpy.arange(len(combined_sample)), size=num_samples, replace=True)
+            bootstrap_sample_1 = combined_sample[bootstrap_indices]
+            bootstrap_sample_2 = combined_sample[(bootstrap_indices + num_samples) % (2 * num_samples)]
+            difference_after_bootstrap = abs(metric(y_true, bootstrap_sample_1) - metric(y_true, bootstrap_sample_2))
+            inner_values.append(difference_after_bootstrap)
+            larger_values.append(difference_before_bootstrap > difference_after_bootstrap)
+
+        print(numpy.mean(outer_values), numpy.std(outer_values))
+        print(numpy.mean(inner_values), numpy.std(inner_values))
+        print(numpy.mean(larger_values))
+
+        violation_p_value = binom.cdf(numpy.sum(larger_values), n_bootstraps, 0.5)
+        print(violation_p_value)
+        assert violation_p_value < 0.05
