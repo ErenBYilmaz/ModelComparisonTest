@@ -1,12 +1,11 @@
 # Comparing (statistical) models
 
 In machine learning and related fields, we often encounter the issue of having trained two models but being unsure if our test set is large enough to show that one model is better than the other.
-This repository implements two methods of hypothesis testing to check if two models achieve different results according to some specified metric, against the null hypothesis that the two models' outputs come from the same distribution.
+This repository implements a methods of hypothesis testing to check if two models achieve different results according to some specified metric, against the null hypothesis that the two models' outputs come from the same distribution.
 
-- `permutation_based_model_comparison()`: A standard way of conducting this test, accepted by statisticians and commonly used.
-- `bootstrap_based_model_comparison()`: A bootstrap-based extension that works better for small sample sizes than the permutation test in my simulations, but is not widely accepted in the literature (yet?).
-
-We also have `PairwisePermutationModelComparison` and `PairwiseBootstrapModelComparison`: Extensions to plot many pairwise comparisons (of more than two models) to get an overview of the data.
+If you want to compare a single pair of trained models, use `permutation_based_model_comparison()`: A standard way of conducting this test, accepted by statisticians and [commonly used.](https://aclanthology.org/2022.naacl-main.360.pdf)
+We also have `PairwisePermutationModelComparison`: Extensions to plot many pairwise comparisons (of more than two models) to get an overview of the data.
+If you are instead interested in estimating confidence intervals for the metric value of a single model, I recommend `bootstrap_confidence_interval()`.
 
 # recommended workflow:
 0. Build, train, and optimize the models that you want to compare.
@@ -15,7 +14,7 @@ We also have `PairwisePermutationModelComparison` and `PairwiseBootstrapModelCom
 3. (Optional) If using cross-validation, combine outputs on the respective validation sets into one large ground truth array and do the same for model outputs.
 4. Define a Python function as a metric, taking the ground truth as the first argument and the predictions as the second argument.
 5. Determine the number of iterations (more is better, but with diminishing returns. It also makes the test take longer. I recommend 999, more if you have the computation time, less if you want to do thousands of comparisons or if computing the metric is expensive).
-6. Run one of the methods mentioned above (e.g., `permutation_based_model_comparison()`).
+6. Run `permutation_based_model_comparison()` to get a p-value for comparing the models.
 
 # Examples and Simulations with artificial data
 Examples and simulations with artificial data can be found in the unit tests in `test_hypothesis_test.py`.
