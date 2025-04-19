@@ -3,7 +3,6 @@ import unittest
 from typing import Type
 
 import numpy
-import pandas
 import parameterized
 from parameterized import parameterized_class
 from scipy.stats import binom
@@ -488,6 +487,79 @@ def relevant_test_types():
     return combinations
 
 
+class TestTestWithFixedParameters(unittest.TestCase):
+
+    def test_some_example_computation(self):
+        y_true = numpy.array([0, 0, 0, 1, 1, 1, 1])
+        y_pred_1 = numpy.array([0.2, 0.2, 0.3, 0.52, 0.6, 0.7, 0.15])
+        y_pred_2 = numpy.array([0.25, 0.3, 0.6, 0.4, 0.45, 0.6, 0.1])
+        accuracy = lambda y_true, y_pred: numpy.mean((y_pred >= 0.5) == y_true)
+        p_value = BootstrapModelComparison(999, y_true, y_pred_1, y_pred_2, accuracy)().p_value
+        print(p_value)
+        assert isinstance(p_value, float), p_value
+        assert p_value < 0.55, p_value
+
+    def test_accuracy_comparison_without_permutation(self):
+        p_values_without = []
+        p_values_with_permutation = []
+        test_set_size = 100
+        n_bootstraps = 999
+        n_tests = 1000
+        for _ in tqdm(range(n_tests)):
+            test = LogLikelihoodTest(test_set_size=test_set_size)
+
+            p_value = BootstrapModelComparison(n_bootstraps=n_bootstraps,
+                                               y_true=test.y_true,
+                                               y_pred_1=test.model_outputs_1(),
+                                               y_pred_2=test.model_outputs_2(),
+                                               metric=test.metric,
+                                               permutation_only=False,
+                                               skip_permutation=True,
+                                               two_sided=False,
+                                               skip_validation=True)().p_value
+
+            p_value_with_permutation = BootstrapModelComparison(n_bootstraps=n_bootstraps,
+                                                                y_true=test.y_true,
+                                                                y_pred_1=test.model_outputs_1(),
+                                                                y_pred_2=test.model_outputs_2(),
+                                                                metric=test.metric,
+                                                                permutation_only=True,
+                                                                skip_permutation=False,
+                                                                two_sided=False,
+                                                                skip_validation=True)().p_value
+
+            p_values_without.append(p_value)
+            p_values_with_permutation.append(p_value_with_permutation)
+        for name, p_values in {'p_values_without': p_values_without, 'p_values_with_permutation': p_values_with_permutation}.items():
+            print()
+            print('#', name)
+            print(f'n_bootstraps: {n_bootstraps}')
+            print(f'n_tests: {n_tests}')
+            print(f'test_set_size: {test_set_size}')
+            print(f'median p-value: {numpy.median(p_values)}')
+            cumulative_ratios = p_value_calibration_overview(p_values)
+
+            # specifically check the 5 % threshold
+            p_threshold = max([k for k in cumulative_ratios.keys() if k < 0.05])
+            ratio = cumulative_ratios[p_threshold]
+            violation_p_value = 1 - binom.cdf(ratio * n_tests - 1, n_tests, 0.05)
+            # probability of having at least that many p-values below threshold if the test was well-calibrated
+            print('Violation at 0.05 was', violation_p_value)
+
+            print(f'ratio_p_values_at_most_{p_threshold}: {ratio}')
+
+            violation_p_value = 1 - binom.cdf(ratio * n_tests - 1, n_tests, p_threshold)
+            print(f'Violation at {p_threshold} was', violation_p_value)
+
+        differences = numpy.array(p_values_with_permutation) - numpy.array(p_values_without)
+        print('mean difference:', numpy.mean(differences), 'std:', numpy.std(differences))
+        # t-test if difference is significantly different from 0
+        from scipy import stats
+        result = stats.ttest_1samp(differences, 0).pvalue
+        print('t-test p-value for different p-values:', result)
+        print('p-values were typically larger', 'with' if numpy.mean(differences) > 0 else 'without', 'permutation.')
+
+
 @parameterized_class(['cls_test_data_generator', 'permutation_only', 'two_sided', 'paired', 'skip_permutation'], relevant_test_types(), class_name_func=test_name)
 class TestBootStrapTest(unittest.TestCase):
     cls_test_data_generator: Type[TestTest]
@@ -673,5 +745,41 @@ class SanityCheckSimulation(unittest.TestCase):
         print(numpy.mean(larger_values))
 
         violation_p_value = binom.cdf(numpy.sum(larger_values), n_bootstraps, 0.5)
+        print(violation_p_value)
+        assert violation_p_value < 0.05
+
+    def test_bootstrap_distribution_shift_without_permutation(self):
+        """
+        This test shows that the distribution of the difference of two metrics is shifted towards zero after bootstrapping.
+        That means that p-values are automatically miscalibrated if bootstrap is added into the mix
+        """
+        num_samples = 200
+        n_bootstraps = 10000
+        metric = AccuracyTest(test_set_size=10).metric
+        y_true = numpy.ones(num_samples)
+        inner_values = []
+        outer_values = []
+        significant_values = []
+
+        for _ in range(n_bootstraps):
+            samples_1 = numpy.random.randint(0, 2, size=num_samples)
+            samples_2 = numpy.random.randint(0, 2, size=num_samples)
+            difference_before_bootstrap = metric(y_true, samples_1) - metric(y_true, samples_2)
+            outer_values.append(difference_before_bootstrap)
+            bootstrap_indices = numpy.random.choice(numpy.arange(len(samples_1)), size=num_samples, replace=True)
+            bootstrap_sample_1 = samples_1[bootstrap_indices]
+            bootstrap_indices = numpy.random.choice(numpy.arange(len(samples_2)), size=num_samples, replace=True)
+            bootstrap_sample_2 = samples_2[bootstrap_indices]
+            difference_after_bootstrap = metric(y_true, bootstrap_sample_1) - metric(y_true, bootstrap_sample_2)
+            if difference_before_bootstrap < 0:
+                difference_after_bootstrap = -difference_after_bootstrap
+            inner_values.append(difference_after_bootstrap)
+            significant_values.append(difference_after_bootstrap < 0)
+
+        print(numpy.mean(outer_values), numpy.std(outer_values))
+        print(numpy.mean(inner_values), numpy.std(inner_values))
+        print(numpy.mean(significant_values))
+
+        violation_p_value = binom.cdf(numpy.sum(significant_values), n_bootstraps, 0.5)
         print(violation_p_value)
         assert violation_p_value < 0.05

@@ -102,7 +102,8 @@ class BootstrapModelComparison:
                  y_true_2=None,
                  permutation_only=True,
                  skip_permutation=False,
-                 plot_histogram_to_file=None):
+                 plot_histogram_to_file=None,
+                 skip_validation=False):
         """
         Compare two models based on their outputs and respective ground truth.
         Both models need to be evaluated on the same test set, but no assumptions regarding training data or nestedness are required.
@@ -132,7 +133,8 @@ class BootstrapModelComparison:
         self.permutation_only = permutation_only
         self.skip_permutation = skip_permutation
         self.plot_histogram_to_file = plot_histogram_to_file
-        self.validate_parameters()
+        if not skip_validation:
+            self.validate_parameters()
 
     def get_y_pred_array(self, y_pred: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]], num_samples: int):
         return y_pred(numpy.arange(num_samples)) if callable(y_pred) else y_pred
@@ -181,9 +183,11 @@ class BootstrapModelComparison:
         assert 0 < p_value_bootstrap <= 1
         if self.verbose >= 2:
             print()
-            print(f'n_bootstraps: {self.n_bootstraps}')
+            print(f'n_iterations: {self.n_bootstraps}')
+            print(f'Observed metric 1: {observed_metric_1}')
+            print(f'Observed metric 2: {observed_metric_2}')
             print(f'Observed difference: {test_set_difference}')
-            print(f'p-value from bootstraps: {p_value_bootstrap}')
+            print(f'p-value: {p_value_bootstrap}')
 
         if self.plot_histogram_to_file is not None:
             fig, ax = pyplot.subplots()
@@ -367,7 +371,14 @@ class PairwiseBootstrapModelComparison(PairwiseModelComparison):
         return self.metric.__name__
 
     def compare_models(self, model_1, model_2):
-        return BootstrapModelComparison(self.n_bootstraps, self.y_true, self.y_preds[model_1], self.y_preds[model_2], self.metric, permutation_only=self.permutation_only, verbose=self.verbose, two_sided=self.two_sided)()
+        return BootstrapModelComparison(self.n_bootstraps,
+                                        self.y_true,
+                                        self.y_preds[model_1],
+                                        self.y_preds[model_2],
+                                        self.metric,
+                                        permutation_only=self.permutation_only,
+                                        verbose=self.verbose,
+                                        two_sided=self.two_sided)()
 
 
 class PairwisePermutationModelComparison(PairwiseBootstrapModelComparison):
