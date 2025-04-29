@@ -235,7 +235,7 @@ class BootstrapModelComparison:
                 numpy.random.shuffle(combined_indices)
             combined_indices_1 = combined_indices[:len(self.y_true)]
             combined_indices_2 = combined_indices[len(self.y_true):]
-        elif not self.use_permutation() and self.use_bootstrap():# sample_indices if they were all from one large array y_true+y_true_2
+        elif not self.use_permutation() and self.use_bootstrap():  # sample_indices if they were all from one large array y_true+y_true_2
             combined_indices_1 = combined_indices[:len(self.y_true)]
             combined_indices_2 = combined_indices[len(self.y_true):]
             combined_indices_1 = numpy.random.choice(combined_indices_1, len(combined_indices_1), replace=True)
@@ -422,4 +422,3 @@ class PairwisePermutationModelComparison(PairwiseBootstrapModelComparison):
                          verbose=verbose,
                          extra_cache_key=extra_cache_key,
                          plot_title_addition=plot_title_addition)
-
