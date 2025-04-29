@@ -24,7 +24,8 @@ class TestTest:
     def model_outputs_2(self):
         raise NotImplementedError('Abstract method')
 
-    def metric(self, y_true: numpy.ndarray, y_pred: numpy.ndarray) -> float:
+    @classmethod
+    def metric(cls, y_true: numpy.ndarray, y_pred: numpy.ndarray) -> float:
         raise NotImplementedError('Abstract method')
 
     @classmethod
@@ -54,8 +55,9 @@ def make_unpaired_test(t: Type[TestTest], test_set_size_ratio: float, name_suffi
         def unpaired(self):
             return True
 
+        @classmethod
         def metric(self, y_true, y_pred):
-            return self.base_1.metric(y_true, y_pred)
+            return t.metric(y_true, y_pred)
 
         @classmethod
         def null_hypothesis_holds(cls) -> bool:
@@ -94,7 +96,8 @@ class CIndexTest(TestTest):
     def null_hypothesis_holds(cls) -> bool:
         return True
 
-    def metric(self, y_true, y_pred):
+    @classmethod
+    def metric(cls, y_true, y_pred):
         from lifelines.utils import concordance_index
         try:
             return concordance_index(y_true[:, 0], -y_pred, y_true[:, 1])
@@ -137,7 +140,8 @@ class SlightlyAsymmetricCIndexTest(AsymmetricCIndexTest):
 
 
 class AvgLogLikelihoodTest(CIndexTest):
-    def metric(self, y_true, y_pred):
+    @classmethod
+    def metric(cls, y_true, y_pred):
         return avg_likelihood(y_true, y_pred)
 
 
@@ -180,7 +184,8 @@ class AccuracyTest(TestTest):
     def null_hypothesis_holds(cls) -> bool:
         return True
 
-    def metric(self, y_true, y_pred):
+    @classmethod
+    def metric(cls, y_true, y_pred):
         return numpy.mean((y_pred >= 0.5) == y_true)
 
 
@@ -224,7 +229,8 @@ class BinaryCETest(TestTest):
     def null_hypothesis_holds(cls) -> bool:
         return True
 
-    def metric(self, y_true, y_pred, epsilon=1e-7):
+    @classmethod
+    def metric(cls, y_true, y_pred, epsilon=1e-7):
         return numpy.mean(y_true * numpy.log(y_pred + epsilon) + (1 - y_true) * numpy.log(1 - y_pred + epsilon))
 
 
@@ -270,7 +276,8 @@ class MSETest(TestTest):
     def null_hypothesis_holds(cls) -> bool:
         return True
 
-    def metric(self, y_true, y_pred):
+    @classmethod
+    def metric(cls, y_true, y_pred):
         return numpy.mean((y_pred - y_true) ** 2)
 
 
@@ -360,6 +367,6 @@ class LogLikelihoodTest(TestTest):
     def metric(cls, y_true: numpy.ndarray, y_pred: numpy.ndarray) -> float:
         # Calculate log-likelihood
         log_likelihood = y_true * numpy.log(y_pred) + (1 - y_true) * numpy.log(1 - y_pred)
-        return numpy.mean(log_likelihood)
+        return numpy.mean(log_likelihood).item()
 
 

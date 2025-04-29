@@ -287,3 +287,37 @@ class BootstrapPlusPermutationComparisonPaired(PairedTestMixin, BootstrapPlusPer
         from_dataset_1_2 = ~from_dataset_1_1
         separated_indices_2 = separated_indices_1
         return separated_indices_1, separated_indices_2, from_dataset_1_1, from_dataset_1_2
+
+
+class LikelihoodRatioTestForBinaryModels(HypothesisTest):
+    def __init__(self, degrees_of_freedom: int):
+        """
+        :param degrees_of_freedom: degrees of freedom for the likelihood ratio test
+        """
+        self.degrees_of_freedom = degrees_of_freedom
+
+    @classmethod
+    def allow_two_sided(cls):
+        return False
+
+    def compare(self,
+                y_true: numpy.ndarray,
+                y_pred_1: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                y_pred_2: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                y_true_2=None, ) -> ComparisonResult:
+        from scipy.stats import chi2
+        l1 = self.log_likelihood(y_true, y_pred_1)
+        l2 = self.log_likelihood(y_true_2, y_pred_2)
+        assert l1 > l2
+        log_ratio = 2 * (l1 - l2)
+        degrees_of_freedom = self.degrees_of_freedom
+        assert self.degrees_of_freedom >= 0
+        p_value = 1 - chi2.cdf(log_ratio, degrees_of_freedom)
+        return ComparisonResult(p_value, l1 > l2)
+
+    def log_likelihood(self, y_true: numpy.ndarray, y_pred: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]]) -> float:
+        """
+        :param y_true: array shape (n_samples,) with ground truth labels
+        :param y_pred: array shape (n_samples,) with outputs of the model
+        """
+        return numpy.sum(y_true * numpy.log(y_pred) + (1 - y_true) * numpy.log(1 - y_pred))

@@ -205,8 +205,8 @@ class TestBootStrapTest(unittest.TestCase):
         (9,),
         (49,),
     ], name_func=lambda f, i, p: f'{f.__name__}_{p[0][0]:02d}')
-    def test_with_multiple_bootstraps(self, n_bootstraps):
-        worst_violation, p_values = self.run_repeated_permutation_tests(n_bootstraps)
+    def test_with_multiple_iterations(self, n_iterations):
+        worst_violation, p_values = self.run_repeated_permutation_tests(n_iterations)
         median_p_value = numpy.median(p_values)
         assert 0 < median_p_value <= 1
         if self.cls_test_data_generator.null_hypothesis_holds():
@@ -214,14 +214,14 @@ class TestBootStrapTest(unittest.TestCase):
         else:
             assert worst_violation < 0.05, worst_violation
 
-    def run_repeated_permutation_tests(self, n_bootstraps, n_tests=1000, test_set_size=100):
-        print(f'n_bootstraps is relatively low at {n_bootstraps}. This function will only return multiples of 1 / (n_bootstraps + 1) = {1 / (n_bootstraps + 1):.3g} '
-              f'so it you can use those as significance level α and then check p <= α or p < α + {1 / (n_bootstraps + 1):.3g} instead of p < α')
+    def run_repeated_permutation_tests(self, n_iterations, n_tests=1000, test_set_size=100):
+        print(f'n_bootstraps is relatively low at {n_iterations}. This function will only return multiples of 1 / (n_bootstraps + 1) = {1 / (n_iterations + 1):.3g} '
+              f'so it you can use those as significance level α and then check p <= α or p < α + {1 / (n_iterations + 1):.3g} instead of p < α')
         p_values = []
         for _ in tqdm(range(n_tests)):
             test = self.cls_test_data_generator(test_set_size)
 
-            p_value = self.bootstrap_test(n_bootstraps,
+            p_value = self.bootstrap_test(n_iterations,
                                           y_true=test.ground_truth(),
                                           y_true_2=test.ground_truth_2(),
                                           y_pred_1=test.model_outputs_1(),
@@ -230,7 +230,7 @@ class TestBootStrapTest(unittest.TestCase):
 
             p_values.append(p_value)
         print()
-        print(f'n_bootstraps: {n_bootstraps}')
+        print(f'n_bootstraps: {n_iterations}')
         print(f'n_tests: {n_tests}')
         print(f'test_set_size: {test_set_size}')
         print(f'median p-value: {numpy.median(p_values)}')
