@@ -1,5 +1,5 @@
 import unittest
-from typing import Type
+from typing import Type, List
 
 import numpy
 import parameterized
@@ -7,7 +7,8 @@ from parameterized import parameterized_class
 from scipy.stats import binom
 from tqdm import tqdm
 
-from hypothesis_test import BootstrapModelComparison
+from hypothesis_test import BootstrapModelComparisonPaired, PermutationModelComparisonPaired, ResamplingBasedModelComparison, BootstrapModelComparisonUnpaired, \
+    PermutationModelComparisonUnpaired, BootstrapPlusPermutationComparisonPaired, BootstrapPlusPermutationComparisonUnpaired, PairedTestMixin
 from test.test_types import TestTest, make_unpaired_test, CIndexTest, AsymmetricCIndexTest, AvgLogLikelihoodTest, AsymmetricAverageLikelihoodTest, AccuracyTest, BinaryCETest, AsymmetricBinaryCETest, \
     SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AsymmetricAccuracyTest, SlightlyAsymmetricAccuracyTest, SameModelAccuracyTest, LogLikelihoodTest
 from utils.tuned_cache import TunedMemory
@@ -25,24 +26,30 @@ def p_value_calibration_overview(p_values):
 
 
 def relevant_test_types():
-    test_types = [
+    test_data_generator_types: List[Type[TestTest]] = [
         BinaryCETest, AsymmetricBinaryCETest, SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AccuracyTest, SameModelAccuracyTest, AsymmetricAccuracyTest,
         SlightlyAsymmetricAccuracyTest, CIndexTest, AsymmetricCIndexTest, AsymmetricAverageLikelihoodTest, AvgLogLikelihoodTest
     ]
+    hypothesis_test_types: List[Type[ResamplingBasedModelComparison]] = [
+        BootstrapModelComparisonPaired,
+        PermutationModelComparisonPaired,
+        BootstrapModelComparisonUnpaired,
+        PermutationModelComparisonUnpaired,
+        BootstrapPlusPermutationComparisonUnpaired,
+        BootstrapPlusPermutationComparisonPaired,
+    ]
 
     combinations = []
-    for test_type in test_types:
-        for permutation_only in [True]:
+    for test_data_generator_type in test_data_generator_types:
+        for hypothesis_test_type in hypothesis_test_types:
             for two_sided in [True, False]:
-                for paired in [True, False]:
-                    for skip_permutation in [False]:
-                        if skip_permutation and (permutation_only or two_sided):
-                            continue
-                        combinations.append((test_type, permutation_only, two_sided, paired, skip_permutation))
-                        if not paired and 'Same' not in test_type.__name__:
-                            combinations.append((make_unpaired_test(test_type, 1, name_suffix='SameSize'), permutation_only, two_sided, paired, skip_permutation))
-                            combinations.append((make_unpaired_test(test_type, 0.5, name_suffix='HalfSize'), permutation_only, two_sided, paired, skip_permutation))
-                            combinations.append((make_unpaired_test(test_type, 2, name_suffix='DoubleSize'), permutation_only, two_sided, paired, skip_permutation))
+                if hypothesis_test_type.allow_two_sided() != two_sided:
+                    continue
+                combinations.append((test_data_generator_type, hypothesis_test_type, two_sided))
+                if not issubclass(hypothesis_test_type, PairedTestMixin) and 'Same' not in test_data_generator_type.__name__:
+                    combinations.append((make_unpaired_test(test_data_generator_type, 1, name_suffix='SameSize'), hypothesis_test_type, two_sided,))
+                    combinations.append((make_unpaired_test(test_data_generator_type, 0.5, name_suffix='HalfSize'), hypothesis_test_type, two_sided,))
+                    combinations.append((make_unpaired_test(test_data_generator_type, 2, name_suffix='DoubleSize'), hypothesis_test_type, two_sided,))
 
     return combinations
 
@@ -54,7 +61,7 @@ class TestTestWithFixedParameters(unittest.TestCase):
         y_pred_1 = numpy.array([0.2, 0.2, 0.3, 0.52, 0.6, 0.7, 0.15])
         y_pred_2 = numpy.array([0.25, 0.3, 0.6, 0.4, 0.45, 0.6, 0.1])
         accuracy = lambda y_true, y_pred: numpy.mean((y_pred >= 0.5) == y_true).item()
-        p_value = BootstrapModelComparison(999, accuracy).compare(y_true, y_pred_1, y_pred_2).p_value
+        p_value = BootstrapModelComparisonPaired(999, metric=accuracy).compare(y_true, y_pred_1, y_pred_2).p_value
         print(p_value)
         assert isinstance(p_value, float), p_value
         assert p_value < 0.55, p_value
@@ -66,8 +73,8 @@ class TestTestWithFixedParameters(unittest.TestCase):
         n_iterations = 999
         n_tests = 1000
         test_cls = LogLikelihoodTest
-        bootstrap_only_test = BootstrapModelComparison(n_iterations=n_iterations, metric=test_cls.metric, permutation_only=False, skip_permutation=True, two_sided=False, skip_validation=True)
-        permutation_only_test = BootstrapModelComparison(n_iterations=n_iterations, metric=test_cls.metric, permutation_only=True, skip_permutation=False, two_sided=False, skip_validation=True)
+        bootstrap_only_test = BootstrapModelComparisonPaired(n_iterations=n_iterations, metric=test_cls.metric, two_sided=False, skip_validation=True)
+        permutation_only_test = PermutationModelComparisonPaired(n_iterations=n_iterations, metric=test_cls.metric, two_sided=False, skip_validation=True)
         for _ in tqdm(range(n_tests)):
             test = test_cls(test_set_size=test_set_size)
             p_value = bootstrap_only_test.compare(
@@ -119,33 +126,29 @@ def test_name(cls, idx, i):
             cls.__name__
             + f'{idx + 1:03d}_'
             + i['cls_test_data_generator'].__name__
-            + ('_permutation_only' if i['permutation_only'] else 'skip_permutation' if i['skip_permutation'] else '_bootstrap')
+            + '_'
+            + i['cls_hypothesis_test'].__name__
             + ('_two_sided' if i['two_sided'] else '_one_sided')
-            + ('_paired' if i['paired'] else '_unpaired')
     )
 
 
-@parameterized_class(['cls_test_data_generator', 'permutation_only', 'two_sided', 'paired', 'skip_permutation'], relevant_test_types(), class_name_func=test_name)
+@parameterized_class(['cls_test_data_generator', 'cls_hypothesis_test', 'two_sided'], relevant_test_types(), class_name_func=test_name)
 class TestBootStrapTest(unittest.TestCase):
     cls_test_data_generator: Type[TestTest]
-    permutation_only: bool
+    cls_hypothesis_test: Type[ResamplingBasedModelComparison]
     two_sided: bool
-    paired: bool
-    skip_permutation: bool
 
     def bootstrap_test(self, n_bootstraps, y_true: numpy.ndarray, y_pred_1: numpy.ndarray, y_pred_2: numpy.ndarray, metric, y_true_2=None, verbose=0):
-        return BootstrapModelComparison(
+        return self.cls_hypothesis_test(
             n_iterations=n_bootstraps,
             metric=metric,
             two_sided=self.two_sided,
             verbose=verbose,
-            paired=self.paired,
-            permutation_only=self.permutation_only,
-            skip_permutation=self.skip_permutation
+            skip_validation=verbose==0,
         ).compare(y_true, y_pred_1, y_pred_2, y_true_2=y_true_2).p_value
 
     def test_some_example_computation(self):
-        if self.paired and self.permutation_only and self.two_sided:
+        if isinstance(self.cls_hypothesis_test, PermutationModelComparisonPaired) and self.two_sided:
             # This test actually fails if we skip the bootstrap and only permute, because there is only one differently classified sample and that difference cant change by permutation
             return
 

@@ -1,4 +1,5 @@
 import math
+import os
 import unittest
 
 import numpy
@@ -78,9 +79,10 @@ def avg_likelihood(y_true, y_pred):
 
 class TestLikelihoodFunction(unittest.TestCase):
     def test_likelihood_function(self):
-        from lifelines import CoxPHFitter
+        import lifelines
         import pandas
-        rossi = pandas.read_csv('rossi.csv')
+        rossi_path = os.path.join(os.path.dirname(lifelines.__file__), 'datasets', 'rossi.csv')
+        rossi = pandas.read_csv(rossi_path)
 
         rossi = rossi.sample(frac=1.0, random_state=25)  # ensures the reproducibility of the example
         train_rossi = rossi.iloc[:400]
@@ -88,8 +90,8 @@ class TestLikelihoodFunction(unittest.TestCase):
 
         time_column = 'week'
         event_column = 'arrest'
-        cph_l1 = CoxPHFitter(penalizer=0.1, l1_ratio=1.).fit(train_rossi, time_column, event_column)
-        cph_l2 = CoxPHFitter(penalizer=0.1, l1_ratio=0.).fit(train_rossi, time_column, event_column)
+        cph_l1 = lifelines.CoxPHFitter(penalizer=0.1, l1_ratio=1.).fit(train_rossi, time_column, event_column)
+        cph_l2 = lifelines.CoxPHFitter(penalizer=0.1, l1_ratio=0.).fit(train_rossi, time_column, event_column)
 
         y_true = test_rossi[[time_column, event_column]].values
         y_pred_1 = numpy.array(cph_l1.predict_log_partial_hazard(test_rossi))
