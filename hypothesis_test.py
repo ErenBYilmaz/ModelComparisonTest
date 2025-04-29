@@ -308,6 +308,9 @@ class LikelihoodRatioTestForBinaryModels(HypothesisTest):
         from scipy.stats import chi2
         l1 = self.log_likelihood(y_true, y_pred_1)
         l2 = self.log_likelihood(y_true_2, y_pred_2)
+        # if l2 > l1:
+            # l1, l2 = l2, l1
+            # return ComparisonResult(1, l1 > l2)
         assert l1 > l2
         log_ratio = 2 * (l1 - l2)
         degrees_of_freedom = self.degrees_of_freedom
@@ -315,9 +318,10 @@ class LikelihoodRatioTestForBinaryModels(HypothesisTest):
         p_value = 1 - chi2.cdf(log_ratio, degrees_of_freedom)
         return ComparisonResult(p_value, l1 > l2)
 
-    def log_likelihood(self, y_true: numpy.ndarray, y_pred: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]]) -> float:
+    def log_likelihood(self, y_true: numpy.ndarray, y_pred: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]], epsilon=1e-7) -> float:
         """
         :param y_true: array shape (n_samples,) with ground truth labels
         :param y_pred: array shape (n_samples,) with outputs of the model
+        :param epsilon: small value to avoid division by zero
         """
-        return numpy.sum(y_true * numpy.log(y_pred) + (1 - y_true) * numpy.log(1 - y_pred))
+        return numpy.sum(y_true * numpy.log(y_pred + epsilon) + (1 - y_true) * numpy.log(1 - y_pred + epsilon))

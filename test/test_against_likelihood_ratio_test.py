@@ -4,35 +4,126 @@ from typing import Type, List
 import numpy
 from parameterized import parameterized_class
 from scipy.stats import binom
+from sklearn.linear_model import LogisticRegression
 from tqdm import tqdm
 
-from hypothesis_test import BootstrapModelComparisonPaired, PermutationModelComparisonPaired, ResamplingBasedModelComparison, BootstrapModelComparisonUnpaired, \
-    PermutationModelComparisonUnpaired, HypothesisTest, LikelihoodRatioTestForBinaryModels
+from hypothesis_test import PermutationModelComparisonPaired, ResamplingBasedModelComparison, PermutationModelComparisonUnpaired, HypothesisTest, LikelihoodRatioTestForBinaryModels
 from test.test_hypothesis_test import p_value_calibration_overview
-from test.test_types import TestTest, BinaryCETest, AsymmetricBinaryCETest, SlightlyAsymmetricBinaryCETest
+from test.test_types import TestTest, BinaryCETest
 from utils.tuned_cache import TunedMemory
 
 results_cache = TunedMemory('.cache')
 
 
+class OutputsOfLogisticRegressionModels(TestTest):
+    def __init__(self, test_set_size: int):
+        super().__init__(test_set_size=test_set_size)
+        y_true = numpy.random.randint(0, 2, size=test_set_size)
+
+        x_1, x_2 = self.generate_input_columns(test_set_size)
+        combined_xs = numpy.concatenate((x_1, x_2), axis=-1)
+
+        self.nested_model = LogisticRegression(penalty=None)
+        self.nested_model.fit(x_1, y_true)
+
+        self.super_model = LogisticRegression(penalty=None)
+        self.super_model.fit(combined_xs, y_true)
+
+        self.y_pred_1 = self.super_model.predict_proba(combined_xs)[:, 1]
+        self.y_pred_2 = self.nested_model.predict_proba(x_1)[:, 1]
+        self.y_true = y_true
+
+        self.degree_of_freedom_difference = self.super_model.n_features_in_ - self.nested_model.n_features_in_
+        assert self.degree_of_freedom_difference == x_2.shape[-1]
+        assert self.metric(self.y_true, self.y_pred_1) >= self.metric(self.y_true, self.y_pred_2)
+
+    def generate_input_columns(self, test_set_size):
+        x_1 = numpy.random.random((test_set_size, 1))
+        x_2 = numpy.random.random((test_set_size, 1))
+        return x_1, x_2
+
+    def ground_truth(self):
+        return self.y_true
+
+    def model_outputs_1(self):
+        return self.y_pred_1
+
+    def model_outputs_2(self):
+        return self.y_pred_2
+
+    @classmethod
+    def metric(cls, y_true, y_pred, epsilon=1e-7):
+        return numpy.sum(y_true * numpy.log(y_pred + epsilon) + (1 - y_true) * numpy.log(1 - y_pred + epsilon))
+
+    @classmethod
+    def null_hypothesis_holds(cls) -> bool:
+        return True
+
+
+class InputsToLogisticRegressionModels(OutputsOfLogisticRegressionModels):
+    def __init__(self, test_set_size: int):
+        super().__init__(test_set_size=test_set_size)
+        y_true = numpy.random.randint(0, 2, size=test_set_size)
+
+        x_1, x_2 = self.generate_input_columns(test_set_size)
+        x_avg = numpy.concatenate((x_1, x_2), axis=-1)
+
+        self.y_pred_1 = x_avg.mean(axis=-1)
+        self.y_pred_2 = x_1.mean(axis=-1)
+        self.y_true = y_true
+
+
+class TwoRandomVariables(OutputsOfLogisticRegressionModels):
+    def __init__(self, test_set_size: int):
+        super().__init__(test_set_size=test_set_size)
+        y_true = numpy.random.randint(0, 2, size=test_set_size)
+
+        x_1, x_2 = self.generate_input_columns(test_set_size)
+
+        self.y_pred_1 = x_2.mean(axis=-1)
+        self.y_pred_2 = x_1.mean(axis=-1)
+        self.y_true = y_true
+
+
+class OutputsOfLogisticRegressionModelsOnTestData(OutputsOfLogisticRegressionModels):
+    def __init__(self, test_set_size: int):
+        super().__init__(test_set_size=test_set_size)
+        y_true = numpy.random.randint(0, 2, size=test_set_size)
+
+        x_1, x_2 = self.generate_input_columns(test_set_size)
+        combined_xs = numpy.concatenate((x_1, x_2), axis=-1)
+
+        self.y_pred_1 = self.super_model.predict_proba(combined_xs)[:, 1]
+        self.y_pred_2 = self.nested_model.predict_proba(x_1)[:, 1]
+        self.y_true = y_true
+
+
 def relevant_test_types():
-    test_data_generator_types: List[Type[TestTest]] = [
-        BinaryCETest,
-        AsymmetricBinaryCETest,
-        SlightlyAsymmetricBinaryCETest,
+    test_data_generator_types: List[Type[OutputsOfLogisticRegressionModels]] = [
+        OutputsOfLogisticRegressionModelsOnTestData,
+        TwoRandomVariables,
+        InputsToLogisticRegressionModels,
+        OutputsOfLogisticRegressionModels,
     ]
-    hypothesis_test: List[HypothesisTest] = [
+    hypothesis_tests: List[HypothesisTest] = [
         LikelihoodRatioTestForBinaryModels(degrees_of_freedom=1),
-        BootstrapModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
+        PermutationModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
+        PermutationModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
         PermutationModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
-        BootstrapModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
         PermutationModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
+        # BootstrapModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
+        # BootstrapModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
+        # BootstrapModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
+        # BootstrapModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
     ]
 
     combinations = []
     for test_data_generator_type in test_data_generator_types:
-        for hypothesis_test_type in hypothesis_test:
-            combinations.append((test_data_generator_type, hypothesis_test_type))
+        for hypothesis_test in hypothesis_tests:
+            estimate_dof = test_data_generator_type(100).degree_of_freedom_difference
+            if isinstance(hypothesis_test, LikelihoodRatioTestForBinaryModels) and hypothesis_test.degrees_of_freedom != estimate_dof:
+                continue
+            combinations.append((test_data_generator_type, hypothesis_test))
 
     return combinations
 

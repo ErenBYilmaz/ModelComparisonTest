@@ -368,5 +368,3 @@ class LogLikelihoodTest(TestTest):
         # Calculate log-likelihood
         log_likelihood = y_true * numpy.log(y_pred) + (1 - y_true) * numpy.log(1 - y_pred)
         return numpy.mean(log_likelihood).item()
-
-
