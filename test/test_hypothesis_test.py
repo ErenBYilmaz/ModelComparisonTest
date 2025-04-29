@@ -8,7 +8,6 @@ from scipy.stats import binom
 from tqdm import tqdm
 
 from hypothesis_test import BootstrapModelComparison
-
 from test.test_types import TestTest, make_unpaired_test, CIndexTest, AsymmetricCIndexTest, AvgLogLikelihoodTest, AsymmetricAverageLikelihoodTest, AccuracyTest, BinaryCETest, AsymmetricBinaryCETest, \
     SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AsymmetricAccuracyTest, SlightlyAsymmetricAccuracyTest, SameModelAccuracyTest, LogLikelihoodTest
 from utils.tuned_cache import TunedMemory
@@ -54,8 +53,8 @@ class TestTestWithFixedParameters(unittest.TestCase):
         y_true = numpy.array([0, 0, 0, 1, 1, 1, 1])
         y_pred_1 = numpy.array([0.2, 0.2, 0.3, 0.52, 0.6, 0.7, 0.15])
         y_pred_2 = numpy.array([0.25, 0.3, 0.6, 0.4, 0.45, 0.6, 0.1])
-        accuracy = lambda y_true, y_pred: numpy.mean((y_pred >= 0.5) == y_true)
-        p_value = BootstrapModelComparison(999, y_true, y_pred_1, y_pred_2, accuracy)().p_value
+        accuracy = lambda y_true, y_pred: numpy.mean((y_pred >= 0.5) == y_true).item()
+        p_value = BootstrapModelComparison(999, accuracy).compare(y_true, y_pred_1, y_pred_2).p_value
         print(p_value)
         assert isinstance(p_value, float), p_value
         assert p_value < 0.55, p_value
@@ -64,37 +63,31 @@ class TestTestWithFixedParameters(unittest.TestCase):
         p_values_without = []
         p_values_with_permutation = []
         test_set_size = 100
-        n_bootstraps = 999
+        n_iterations = 999
         n_tests = 1000
+        test_cls = LogLikelihoodTest
+        bootstrap_only_test = BootstrapModelComparison(n_iterations=n_iterations, metric=test_cls.metric, permutation_only=False, skip_permutation=True, two_sided=False, skip_validation=True)
+        permutation_only_test = BootstrapModelComparison(n_iterations=n_iterations, metric=test_cls.metric, permutation_only=True, skip_permutation=False, two_sided=False, skip_validation=True)
         for _ in tqdm(range(n_tests)):
-            test = LogLikelihoodTest(test_set_size=test_set_size)
+            test = test_cls(test_set_size=test_set_size)
+            p_value = bootstrap_only_test.compare(
+                y_true=test.y_true,
+                y_pred_1=test.model_outputs_1(),
+                y_pred_2=test.model_outputs_2()
+            ).p_value
 
-            p_value = BootstrapModelComparison(n_bootstraps=n_bootstraps,
-                                               y_true=test.y_true,
-                                               y_pred_1=test.model_outputs_1(),
-                                               y_pred_2=test.model_outputs_2(),
-                                               metric=test.metric,
-                                               permutation_only=False,
-                                               skip_permutation=True,
-                                               two_sided=False,
-                                               skip_validation=True)().p_value
-
-            p_value_with_permutation = BootstrapModelComparison(n_bootstraps=n_bootstraps,
-                                                                y_true=test.y_true,
-                                                                y_pred_1=test.model_outputs_1(),
-                                                                y_pred_2=test.model_outputs_2(),
-                                                                metric=test.metric,
-                                                                permutation_only=True,
-                                                                skip_permutation=False,
-                                                                two_sided=False,
-                                                                skip_validation=True)().p_value
+            p_value_with_permutation = permutation_only_test.compare(
+                y_true=test.y_true,
+                y_pred_1=test.model_outputs_1(),
+                y_pred_2=test.model_outputs_2()
+            ).p_value
 
             p_values_without.append(p_value)
             p_values_with_permutation.append(p_value_with_permutation)
         for name, p_values in {'p_values_without': p_values_without, 'p_values_with_permutation': p_values_with_permutation}.items():
             print()
             print('#', name)
-            print(f'n_bootstraps: {n_bootstraps}')
+            print(f'n_iterations: {n_iterations}')
             print(f'n_tests: {n_tests}')
             print(f'test_set_size: {test_set_size}')
             print(f'median p-value: {numpy.median(p_values)}')
@@ -141,17 +134,15 @@ class TestBootStrapTest(unittest.TestCase):
     skip_permutation: bool
 
     def bootstrap_test(self, n_bootstraps, y_true: numpy.ndarray, y_pred_1: numpy.ndarray, y_pred_2: numpy.ndarray, metric, y_true_2=None, verbose=0):
-        return BootstrapModelComparison(n_bootstraps=n_bootstraps,
-                                        y_true=y_true,
-                                        y_true_2=y_true_2,
-                                        y_pred_1=y_pred_1,
-                                        y_pred_2=y_pred_2,
-                                        metric=metric,
-                                        permutation_only=self.permutation_only,
-                                        two_sided=self.two_sided,
-                                        paired=self.paired,
-                                        verbose=verbose,
-                                        skip_permutation=self.skip_permutation)().p_value
+        return BootstrapModelComparison(
+            n_iterations=n_bootstraps,
+            metric=metric,
+            two_sided=self.two_sided,
+            verbose=verbose,
+            paired=self.paired,
+            permutation_only=self.permutation_only,
+            skip_permutation=self.skip_permutation
+        ).compare(y_true, y_pred_1, y_pred_2, y_true_2=y_true_2).p_value
 
     def test_some_example_computation(self):
         if self.paired and self.permutation_only and self.two_sided:
@@ -255,5 +246,3 @@ class TestBootStrapTest(unittest.TestCase):
             worst_violation = min(worst_violation, probability_if_well_calibrated)
         print('Worst violation was', worst_violation)
         return worst_violation, p_values
-
-

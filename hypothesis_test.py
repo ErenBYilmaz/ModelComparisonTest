@@ -10,13 +10,31 @@ Author: Eren Bora Yilmaz, 2025
 import itertools
 import math
 from abc import ABCMeta, abstractmethod
-from typing import Callable, Dict, List, Union
+from typing import Callable, Dict, List, Union, Optional
 
 import numpy
 import pandas
 import seaborn
 from matplotlib import pyplot
 from tqdm import tqdm
+
+from comparison_result import ComparisonResult
+
+
+class HypothesisTest:
+    def compare(self,
+                y_true: numpy.ndarray,
+                y_pred_1: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                y_pred_2: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                y_true_2=None, ) -> ComparisonResult:
+        """
+        :param y_true: array shape (n_samples,) with ground truth labels or callable returning such an array based on sample indices
+        :param y_pred_1: array shape (n_samples,) with outputs of model 1 or callable returning such an array based on sample indices
+        :param y_pred_2: array shape (n_samples,) with outputs of model 2 or callable returning such an array based on sample indices
+        :param y_true_2: array shape (n_samples,) with ground truth values corresponding to y_pred_2, to be used in case of an unpaired test.
+        If omitted, y_true_2 is set to y_true.
+        """
+        raise NotImplementedError('Abstract method')
 
 
 def permutation_based_model_comparison(n_permutations: int,
@@ -43,63 +61,25 @@ def permutation_based_model_comparison(n_permutations: int,
     :param verbose: verbosity level
     :param plot_histogram_to_file: if not None, a histogram of the differences in metric for the bootstrap iterations is plotted and saved to this file
     """
-    return BootstrapModelComparison(n_permutations,
-                                    y_true,
-                                    y_pred_1,
-                                    y_pred_2,
-                                    metric,
-                                    two_sided=two_sided,
-                                    verbose=verbose,
-                                    paired=paired,
-                                    y_true_2=y_true_2,
-                                    permutation_only=True,
-                                    skip_permutation=False,
-                                    plot_histogram_to_file=plot_histogram_to_file)()
+    return BootstrapModelComparison(
+        n_permutations,
+        metric,
+        two_sided=two_sided,
+        verbose=verbose,
+        paired=paired,
+        permutation_only=True,
+        skip_permutation=False,
+        plot_histogram_to_file=plot_histogram_to_file
+    ).compare(y_true, y_pred_1, y_pred_2, y_true_2=y_true_2)
 
 
-class ComparisonResult:
-    MIN_COLOR = 0.001
-
-    def __init__(self, p_value: float, model_1_metric_larger: bool):
-        self.p_value = p_value
-        self.model_1_metric_larger = model_1_metric_larger
-
-    def table_color(self):
-        """-1 is blue (model 2 better), 1 is red (model 1 better)"""
-        v = min(self.p_value * 2, 1)
-        v = math.log(v) / math.log(self.MIN_COLOR)
-        if not self.model_1_metric_larger:
-            v *= -1
-        return v
-
-    @classmethod
-    def inverse_color(cls, c):
-        c = abs(c)
-        return math.exp(c * math.log(cls.MIN_COLOR) - math.log(2))
-
-    @classmethod
-    def example_color_ticks(cls):
-        return numpy.linspace(-1, 1, 19)
-
-    @classmethod
-    def example_color_ticks_labels(cls):
-        return [f'{cls.inverse_color(c):.3f}' for c in cls.example_color_ticks()]
-
-    def flipped(self):
-        return ComparisonResult(self.p_value, not self.model_1_metric_larger)
-
-
-class BootstrapModelComparison:
+class BootstrapModelComparison(HypothesisTest):
     def __init__(self,
-                 n_bootstraps: int,
-                 y_true: numpy.ndarray,
-                 y_pred_1: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
-                 y_pred_2: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                 n_iterations: int,
                  metric: Callable[[numpy.ndarray, numpy.ndarray], float],  # argument order y_true, y_pred
                  two_sided=True,
                  verbose=0,
                  paired=True,
-                 y_true_2=None,
                  permutation_only=True,
                  skip_permutation=False,
                  plot_histogram_to_file=None,
@@ -107,10 +87,7 @@ class BootstrapModelComparison:
         """
         Compare two models based on their outputs and respective ground truth.
         Both models need to be evaluated on the same test set, but no assumptions regarding training data or nestedness are required.
-        :param n_bootstraps: number of bootstrap samples to draw
-        :param y_true: array shape (n_samples,) with ground truth labels or callable returning such an array based on sample indices
-        :param y_pred_1: array shape (n_samples,) with outputs of model 1 or callable returning such an array based on sample indices
-        :param y_pred_2: array shape (n_samples,) with outputs of model 2 or callable returning such an array based on sample indices
+        :param n_iterations: number of samples to draw
         :param metric: callable taking two arrays of shape (n_samples,) and returning a float. The first argument is the ground truth, the second are the model outputs.
         :param two_sided: if True, the test is conducted in a two-sided way, otherwise one-sided
         :param verbose: verbosity level
@@ -119,27 +96,40 @@ class BootstrapModelComparison:
         :param skip_permutation: if True, the test is conducted by bootstrapping without permutation
         :param plot_histogram_to_file: if not None, a histogram of the differences in metric for the bootstrap iterations is plotted and saved to this file
         """
-        self.n_bootstraps = n_bootstraps
-        self.y_true = y_true
-        self.y_pred_1 = y_pred_1
-        self.y_pred_2 = y_pred_2
+        self.n_bootstraps = n_iterations
         self.metric = metric
         self.two_sided = two_sided
         self.verbose = verbose
         self.paired = paired
-        if y_true_2 is None:
-            y_true_2 = self.y_true
-        self.y_true_2 = y_true_2
         self.permutation_only = permutation_only
         self.skip_permutation = skip_permutation
         self.plot_histogram_to_file = plot_histogram_to_file
+        self.running = False
+        # None as long as not running
+        self.y_pred_1: Optional[Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]]] = None
+        self.y_pred_2: Optional[Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]]] = None
+        self.y_true: Optional[numpy.ndarray] = None
+        self.y_true_2: Optional[numpy.ndarray] = None
         if not skip_validation:
             self.validate_parameters()
 
     def get_y_pred_array(self, y_pred: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]], num_samples: int):
         return y_pred(numpy.arange(num_samples)) if callable(y_pred) else y_pred
 
-    def __call__(self):
+    def compare(self,
+                y_true: numpy.ndarray,
+                y_pred_1: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                y_pred_2: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                y_true_2=None, ) -> ComparisonResult:
+        if y_true_2 is None:
+            y_true_2 = y_true
+        self.y_pred_1 = y_pred_1
+        self.y_pred_2 = y_pred_2
+        self.y_true = y_true
+        self.y_true_2 = y_true_2
+        if (y_true_2 is not y_true) and self.paired:
+            raise NotImplementedError('Paired tests with two different ground truths are highly questionable. Might even crash. Are you sure this is a good idea?')
+
         y_pred_1_array = self.get_y_pred_array(self.y_pred_1, len(self.y_true))
         y_pred_2_array = self.get_y_pred_array(self.y_pred_2, len(self.y_true_2))
         observed_metric_1 = self.metric(self.y_true, y_pred_1_array)
@@ -206,8 +196,6 @@ class BootstrapModelComparison:
             raise ValueError('Both permutation_only and skip_permutation are set to True. This is contradictory.')
         if self.skip_permutation and self.two_sided:
             raise NotImplementedError('I have no idea how to do a bootstrap-only test in a two-sided way.')
-        if (self.y_true_2 is not self.y_true) and self.paired:
-            raise NotImplementedError('Paired tests with two different ground truths are highly questionable. Might even crash. Are you sure this is a good idea?')
         if self.verbose >= 1 and self.n_bootstraps < 99:
             print(f'n_bootstraps is relatively low at {self.n_bootstraps}. This function will only return multiples of 1 / (2 * (n_bootstraps + 1)) = {1 / (self.n_bootstraps + 1):.3g} so '
                   f'it is recommended to use those as significance level α and then check p <= α or p < α + {1 / (self.n_bootstraps + 1):.3g} instead of p < α. '
@@ -371,14 +359,14 @@ class PairwiseBootstrapModelComparison(PairwiseModelComparison):
         return self.metric.__name__
 
     def compare_models(self, model_1, model_2):
-        return BootstrapModelComparison(self.n_bootstraps,
-                                        self.y_true,
-                                        self.y_preds[model_1],
-                                        self.y_preds[model_2],
-                                        self.metric,
-                                        permutation_only=self.permutation_only,
-                                        verbose=self.verbose,
-                                        two_sided=self.two_sided)()
+        return BootstrapModelComparison(
+            self.n_bootstraps,
+            self.metric,
+            two_sided=self.two_sided,
+            verbose=self.verbose,
+            paired=True,
+            permutation_only=self.permutation_only
+        ).compare(self.y_true, self.y_preds[model_1], self.y_preds[model_2])
 
 
 class PairwisePermutationModelComparison(PairwiseBootstrapModelComparison):
