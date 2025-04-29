@@ -32,7 +32,7 @@ class HypothesisTest:
         raise NotImplementedError('Abstract method')
 
     @classmethod
-    def allow_two_sided(self):
+    def allow_two_sided(cls):
         return True
 
 
@@ -150,14 +150,14 @@ class ResamplingBasedModelComparison(HypothesisTest):
                             y_pred_2: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
                             y_true_2=None, ):
         if self.verbose >= 1 and self.n_iterations < 99:
-            print(f'n_bootstraps is relatively low at {self.n_iterations}. This function will only return multiples of 1 / (2 * (n_bootstraps + 1)) = {1 / (self.n_iterations + 1):.3g} so '
+            print(f'n_iterations is relatively low at {self.n_iterations}. This function will only return multiples of 1 / (2 * (n_bootstraps + 1)) = {1 / (self.n_iterations + 1):.3g} so '
                   f'it is recommended to use those as significance level α and then check p <= α or p < α + {1 / (self.n_iterations + 1):.3g} instead of p < α. '
-                  f'Alternatively, increase the number of bootstraps to get more fine-grained p-values.')
+                  f'Alternatively, increase the number of iterations to get more fine-grained p-values.')
 
-    def get_sample(self, y_pred_1_array, y_pred_2_array, bootstrap_indices_1, from_dataset_1):
+    def get_sample(self, y_pred_1_array, y_pred_2_array, sample_indices_1, from_dataset_1):
         combined_array = numpy.concatenate([y_pred_1_array, y_pred_2_array])
         combined_y_true = numpy.concatenate([self.y_true, self.y_true_2])
-        adjusted_indices = bootstrap_indices_1 + (~from_dataset_1) * len(y_pred_1_array)
+        adjusted_indices = sample_indices_1 + (~from_dataset_1) * len(y_pred_1_array)
         return combined_array[adjusted_indices], combined_y_true[adjusted_indices]
 
     @abstractmethod
@@ -192,7 +192,7 @@ class BootstrapModelComparisonUnpaired(ResamplingBasedModelComparison):
         super().validate_parameters(y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, y_true_2=y_true_2, )
 
     @classmethod
-    def allow_two_sided(self):
+    def allow_two_sided(cls):
         return False
 
     def pick_samples(self):
@@ -253,7 +253,7 @@ class BootstrapModelComparisonPaired(PairedTestMixin, BootstrapModelComparisonUn
         return separated_indices_1, separated_indices_2, from_dataset_1_1, from_dataset_1_2
 
 
-class BootstrapPlusPermutationComparisonUnpaired(BootstrapModelComparisonUnpaired):
+class BootstrapPlusPermutationComparisonUnpaired(ResamplingBasedModelComparison):
     def pick_samples(self):
         combined_indices = numpy.arange(len(self.y_true) + len(self.y_true_2))
         combined_indices = numpy.random.choice(combined_indices, len(combined_indices), replace=False)
@@ -268,9 +268,13 @@ class BootstrapPlusPermutationComparisonUnpaired(BootstrapModelComparisonUnpaire
     def count_outliers(self, differences: numpy.ndarray, threshold: float) -> int:
         return numpy.count_nonzero(differences >= threshold)
 
-    @classmethod
-    def allow_two_sided(self):
-        return True
+    def validate_parameters(self,
+                            y_true: numpy.ndarray,
+                            y_pred_1: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                            y_pred_2: Union[numpy.ndarray, Callable[[numpy.ndarray], numpy.ndarray]],
+                            y_true_2=None, ):
+        print('Warning: I noticed that bootstrap breaks p-values, by a tiny bit, but enough to make them not work. Use at your own risk or switch to permutation test.')
+        super().validate_parameters(y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, y_true_2=y_true_2, )
 
 
 class BootstrapPlusPermutationComparisonPaired(PairedTestMixin, BootstrapPlusPermutationComparisonUnpaired):
