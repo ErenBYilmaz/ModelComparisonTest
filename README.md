@@ -1,5 +1,3 @@
-from pairwise_model_comparison import PairwiseModelComparisonfrom hypothesis_test import PermutationModelComparisonPaired
-
 # Comparing (statistical) models
 
 In machine learning and related fields, we often encounter the issue of having trained two models but being unsure if our test set is large enough to show that one model is better than the other.
