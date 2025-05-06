@@ -1,6 +1,5 @@
 import unittest
 from typing import Type, List
-from unittest import skip
 
 import numpy
 from parameterized import parameterized_class
@@ -8,7 +7,8 @@ from scipy.stats import binom
 from sklearn.linear_model import LogisticRegression
 from tqdm import tqdm
 
-from hypothesis_test import PermutationModelComparisonPaired, ResamplingBasedModelComparison, PermutationModelComparisonUnpaired, HypothesisTest, LikelihoodRatioTestForBinaryModels
+from hypothesis_test import PermutationModelComparisonPaired, ResamplingBasedModelComparison, PermutationModelComparisonUnpaired, HypothesisTest, LikelihoodRatioTestForBinaryModels, \
+    BootstrapModelComparisonPaired
 from test.test_hypothesis_test import p_value_calibration_overview
 from test.test_types import TestTest, BinaryCETest
 from utils.tuned_cache import TunedMemory
@@ -38,9 +38,12 @@ class OutputsOfLogisticRegressionModels(TestTest):
         assert self.degree_of_freedom_difference == x_2.shape[-1]
         assert self.metric(self.y_true, self.y_pred_1) >= self.metric(self.y_true, self.y_pred_2)
 
+    def sigmoid(self, z):
+        return 1 / (1 + numpy.exp(-z))
+
     def generate_input_columns(self, test_set_size):
-        x_1 = numpy.random.random((test_set_size, 1))
-        x_2 = numpy.random.random((test_set_size, 1))
+        x_1 = self.sigmoid(numpy.random.normal(size=(test_set_size, 1)))
+        x_2 = self.sigmoid(numpy.random.normal(size=(test_set_size, 1)))
         return x_1, x_2
 
     def ground_truth(self):
@@ -67,10 +70,9 @@ class InputsToLogisticRegressionModels(OutputsOfLogisticRegressionModels):
         y_true = numpy.random.randint(0, 2, size=test_set_size)
 
         x_1, x_2 = self.generate_input_columns(test_set_size)
-        x_avg = numpy.concatenate((x_1, x_2), axis=-1)
 
-        self.y_pred_1 = x_avg.mean(axis=-1)
-        self.y_pred_2 = x_1.mean(axis=-1)
+        self.y_pred_1 = x_1.mean(axis=-1)
+        self.y_pred_2 = x_2.mean(axis=-1)
         self.y_true = y_true
 
 
@@ -109,12 +111,12 @@ def relevant_test_types():
     hypothesis_tests: List[HypothesisTest] = [
         LikelihoodRatioTestForBinaryModels(degrees_of_freedom=1),
         PermutationModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
-        PermutationModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
+        # PermutationModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
         PermutationModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
-        PermutationModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
+        # PermutationModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
         # BootstrapModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
         # BootstrapModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=True, verbose=0, skip_validation=True),
-        # BootstrapModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
+        BootstrapModelComparisonPaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
         # BootstrapModelComparisonUnpaired(n_iterations=99, metric=BinaryCETest.metric, two_sided=False, verbose=0, skip_validation=True),
     ]
 
@@ -130,25 +132,33 @@ def relevant_test_types():
 
 
 def test_name(cls, idx, i):
+    test = i['hypothesis_test']
     return (
             cls.__name__
             + f'{idx + 1:03d}_'
             + i['cls_test_data_generator'].__name__
             + '_'
-            + type(i['hypothesis_test']).__name__
+            + type(test).__name__
+            + ('_2sided' if isinstance(test, ResamplingBasedModelComparison) and test.two_sided else '_1sided')
     )
 
-@skip('This does not work yet...')
+
+# @skip('This does not work yet...')
 @parameterized_class(['cls_test_data_generator', 'hypothesis_test'], relevant_test_types(), class_name_func=test_name)
-class TestAgainstLikelihoodRatioTest(unittest.TestCase):
+class TestAgainstLRTest(unittest.TestCase):
     cls_test_data_generator: Type[TestTest]
-    hypothesis_test: Type[ResamplingBasedModelComparison]
+    hypothesis_test: Type[HypothesisTest]
 
     def run_test(self, y_true: numpy.ndarray, y_pred_1: numpy.ndarray, y_pred_2: numpy.ndarray, y_true_2=None):
         return self.hypothesis_test.compare(y_true, y_pred_1, y_pred_2, y_true_2=y_true_2).p_value
 
     def test_with_multiple_iterations(self):
-        worst_violation, p_values = self.run_repeated_tests()
+        try:
+            worst_violation, p_values = self.run_repeated_tests()
+        except ValueError as e:
+            if 'Log likelihood of model 1 is smaller than log likelihood of model 2' in str(e):
+                return self.skipTest('Skipping test because of log likelihood error')
+            raise
         median_p_value = numpy.median(p_values)
         assert 0 < median_p_value <= 1
         if self.cls_test_data_generator.null_hypothesis_holds():

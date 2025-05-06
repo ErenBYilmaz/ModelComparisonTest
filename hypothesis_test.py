@@ -309,10 +309,8 @@ class LikelihoodRatioTestForBinaryModels(HypothesisTest):
         if y_true_2 is None:
             y_true_2 = y_true
         l2 = self.log_likelihood(y_true_2, y_pred_2)
-        # if l2 > l1:
-            # l1, l2 = l2, l1
-            # return ComparisonResult(1, l1 > l2)
-        assert l1 > l2
+        if l1 < l2:
+            raise ValueError('Log likelihood of model 1 is smaller than log likelihood of model 2. This is not possible for a likelihood ratio test.')
         log_ratio = 2 * (l1 - l2)
         degrees_of_freedom = self.degrees_of_freedom
         assert self.degrees_of_freedom >= 0
