@@ -12,7 +12,7 @@ If you are instead interested in estimating confidence intervals for the metric 
 
 # Example
 
-Comparing two model outputs
+### Comparing two model outputs:
 ```python
 import numpy, scipy
 
@@ -40,8 +40,9 @@ print(result.p_value)
 print(result.model_1_metric_larger)
 ```
 
-Comparing many models outputs in a pairwise way (beware of [multiple testing](https://en.wikipedia.org/wiki/Multiple_comparisons_problem))
+Other available tests: `PermutationModelComparisonPaired`, `PermutationModelComparisonUnpaired`, `BootstrapModelComparisonUnpaired`, `BootstrapModelComparisonUnpaired`.
 
+### Comparing many models outputs in a pairwise way (beware of [multiple testing](https://en.wikipedia.org/wiki/Multiple_comparisons_problem)):
 ```python
 import numpy, scipy
 
