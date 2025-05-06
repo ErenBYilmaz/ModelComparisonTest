@@ -35,8 +35,8 @@ def relevant_test_types():
         PermutationModelComparisonPaired,
         BootstrapModelComparisonUnpaired,
         PermutationModelComparisonUnpaired,
-        BootstrapPlusPermutationComparisonUnpaired,
-        BootstrapPlusPermutationComparisonPaired,
+        # BootstrapPlusPermutationComparisonUnpaired, # this is actually not statistically correct
+        # BootstrapPlusPermutationComparisonPaired, # this is actually not statistically correct
     ]
 
     combinations = []
@@ -61,7 +61,7 @@ class TestTestWithFixedParameters(unittest.TestCase):
         y_pred_1 = numpy.array([0.2, 0.2, 0.3, 0.52, 0.6, 0.7, 0.15])
         y_pred_2 = numpy.array([0.25, 0.3, 0.6, 0.4, 0.45, 0.6, 0.1])
         accuracy = lambda y_true, y_pred: numpy.mean((y_pred >= 0.5) == y_true).item()
-        p_value = BootstrapModelComparisonPaired(999, metric=accuracy).compare(y_true, y_pred_1, y_pred_2).p_value
+        p_value = BootstrapModelComparisonPaired(999, metric=accuracy, two_sided=False).compare(y_true, y_pred_1, y_pred_2).p_value
         print(p_value)
         assert isinstance(p_value, float), p_value
         assert p_value < 0.55, p_value

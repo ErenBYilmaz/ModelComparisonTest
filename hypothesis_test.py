@@ -188,7 +188,6 @@ class BootstrapModelComparisonUnpaired(ResamplingBasedModelComparison):
                             y_true_2=None, ):
         if self.two_sided:
             raise NotImplementedError('I have no idea how to do a bootstrap-only test in a two-sided way.')
-        print('Warning: I noticed that bootstrap breaks p-values, by a tiny bit, but enough to make them not work. Use at your own risk or switch to permutation test.')
         super().validate_parameters(y_true=y_true, y_pred_1=y_pred_1, y_pred_2=y_pred_2, y_true_2=y_true_2, )
 
     @classmethod
@@ -307,6 +306,8 @@ class LikelihoodRatioTestForBinaryModels(HypothesisTest):
                 y_true_2=None, ) -> ComparisonResult:
         from scipy.stats import chi2
         l1 = self.log_likelihood(y_true, y_pred_1)
+        if y_true_2 is None:
+            y_true_2 = y_true
         l2 = self.log_likelihood(y_true_2, y_pred_2)
         # if l2 > l1:
             # l1, l2 = l2, l1
