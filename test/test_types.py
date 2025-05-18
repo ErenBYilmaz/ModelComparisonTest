@@ -368,3 +368,28 @@ class LogLikelihoodTest(TestTest):
         # Calculate log-likelihood
         log_likelihood = y_true * numpy.log(y_pred) + (1 - y_true) * numpy.log(1 - y_pred)
         return numpy.mean(log_likelihood).item()
+
+
+class ZeroMeanDistributionsTest(TestTest):
+    def __init__(self, test_set_size: int):
+        super().__init__(test_set_size=test_set_size)
+        self.y_true = numpy.zeros(test_set_size)
+        self.y_pred_1 = numpy.zeros(test_set_size)
+        self.y_pred_2 = numpy.random.normal(loc=0, scale=1, size=test_set_size)
+
+    def ground_truth(self):
+        return self.y_true
+
+    def model_outputs_1(self):
+        return self.y_pred_1
+
+    def model_outputs_2(self):
+        return self.y_pred_2
+
+    @classmethod
+    def metric(cls, y_true, y_pred, epsilon=1e-7):
+        return numpy.sum(y_pred)
+
+    @classmethod
+    def null_hypothesis_holds(cls) -> bool:
+        return True

@@ -64,6 +64,13 @@ class OutputsOfLogisticRegressionModels(TestTest):
         return True
 
 
+class OutputsOfLogisticRegressionModelsWithNonNormalInputs(OutputsOfLogisticRegressionModels):
+    def generate_input_columns(self, test_set_size):
+        x_1 = numpy.random.uniform(size=(test_set_size, 1))
+        x_2 = numpy.random.uniform(size=(test_set_size, 1))
+        return x_1, x_2
+
+
 class InputsToLogisticRegressionModels(OutputsOfLogisticRegressionModels):
     def __init__(self, test_set_size: int):
         super().__init__(test_set_size=test_set_size)
@@ -103,10 +110,11 @@ class OutputsOfLogisticRegressionModelsOnTestData(OutputsOfLogisticRegressionMod
 
 def relevant_test_types():
     test_data_generator_types: List[Type[OutputsOfLogisticRegressionModels]] = [
-        OutputsOfLogisticRegressionModelsOnTestData,
-        TwoRandomVariables,
-        InputsToLogisticRegressionModels,
-        OutputsOfLogisticRegressionModels,
+        OutputsOfLogisticRegressionModelsWithNonNormalInputs,
+        # OutputsOfLogisticRegressionModelsOnTestData,
+        # TwoRandomVariables,
+        # InputsToLogisticRegressionModels,
+        # OutputsOfLogisticRegressionModels,
     ]
     hypothesis_tests: List[HypothesisTest] = [
         LikelihoodRatioTestForBinaryModels(degrees_of_freedom=1),

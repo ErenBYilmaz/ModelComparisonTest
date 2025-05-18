@@ -74,7 +74,7 @@ pairwise_test.plot_pairwise_comparisons()
 ```
 
 
-# recommended workflow:
+# Recommended workflow:
 0. Build, train, and optimize the models that you want to compare.
 1. Collect ground truth for test data as a numpy array or pandas DataFrame, with the first axis as the sample axis (one row per observation).
 2. Collect model outputs on test data (e.g., segmentation masks, class probabilities, etc.), ordering rows the same way as the ground truth.
@@ -83,7 +83,7 @@ pairwise_test.plot_pairwise_comparisons()
 5. Determine the number of iterations (more is better, but with diminishing returns. It also makes the test take longer. I recommend 999, more if you have the computation time, less if you want to do thousands of comparisons or if computing the metric is expensive).
 6. Run a `PermutationModelComparisonPaired` to get a p-value for comparing the models.
 
-# Examples and Simulations with artificial data
+# Examples and simulations with artificial data
 Examples and simulations with artificial data can be found in the unit tests in `test_hypothesis_test.py`.
 
 # Common pitfalls to avoid

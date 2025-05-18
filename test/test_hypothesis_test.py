@@ -10,7 +10,8 @@ from tqdm import tqdm
 from hypothesis_test import BootstrapModelComparisonPaired, PermutationModelComparisonPaired, ResamplingBasedModelComparison, BootstrapModelComparisonUnpaired, \
     PermutationModelComparisonUnpaired, BootstrapPlusPermutationComparisonPaired, BootstrapPlusPermutationComparisonUnpaired, PairedTestMixin
 from test.test_types import TestTest, make_unpaired_test, CIndexTest, AsymmetricCIndexTest, AvgLogLikelihoodTest, AsymmetricAverageLikelihoodTest, AccuracyTest, BinaryCETest, AsymmetricBinaryCETest, \
-    SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AsymmetricAccuracyTest, SlightlyAsymmetricAccuracyTest, SameModelAccuracyTest, LogLikelihoodTest
+    SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AsymmetricAccuracyTest, SlightlyAsymmetricAccuracyTest, SameModelAccuracyTest, LogLikelihoodTest, \
+    ZeroMeanDistributionsTest
 from utils.tuned_cache import TunedMemory
 
 results_cache = TunedMemory('.cache')
@@ -28,7 +29,8 @@ def p_value_calibration_overview(p_values):
 def relevant_test_types():
     test_data_generator_types: List[Type[TestTest]] = [
         BinaryCETest, AsymmetricBinaryCETest, SlightlyAsymmetricBinaryCETest, MSETest, AsymmetricMSETest, SlightlyAsymmetricMSETest, AccuracyTest, SameModelAccuracyTest, AsymmetricAccuracyTest,
-        SlightlyAsymmetricAccuracyTest, CIndexTest, AsymmetricCIndexTest, AsymmetricAverageLikelihoodTest, AvgLogLikelihoodTest
+        SlightlyAsymmetricAccuracyTest, CIndexTest, AsymmetricCIndexTest, AsymmetricAverageLikelihoodTest, AvgLogLikelihoodTest,
+        ZeroMeanDistributionsTest,
     ]
     hypothesis_test_types: List[Type[ResamplingBasedModelComparison]] = [
         BootstrapModelComparisonPaired,
